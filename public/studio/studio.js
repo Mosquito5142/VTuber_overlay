@@ -14,11 +14,20 @@ const debounce = (fn, ms) => {
 };
 
 const preview = createRenderer($('preview'));
-let settings = await api.getSettings();
+let settings;
+let startupWarning = null;
+try {
+  settings = await api.getSettings();
+} catch {
+  settings = { voice: { threshold: 0.08, releaseMs: 150, deviceId: null }, activeAvatar: null };
+  startupWarning = 'ต่อ server ไม่ได้ — เปิด start.bat ไว้หรือยัง?';
+}
 const gate = createVoiceGate(settings.voice);
 let mic = null;
 let micWarning = null;
 let serverWarnings = [];
+let saveWarning = null;
+let pendingResume = null;
 
 function setPill(id, ok, text, title = '') {
   const el = $(id);
@@ -28,7 +37,7 @@ function setPill(id, ok, text, title = '') {
 }
 
 function renderWarnings() {
-  const all = micWarning ? [micWarning, ...serverWarnings] : serverWarnings;
+  const all = [micWarning, startupWarning, saveWarning, ...serverWarnings].filter(Boolean);
   const box = $('warnings');
   box.hidden = all.length === 0;
   box.replaceChildren(...all.map((text) => Object.assign(document.createElement('div'), { textContent: `⚠ ${text}` })));
@@ -55,14 +64,20 @@ const socket = connectSocket({
   },
 });
 
-const saveSettingsSoon = debounce(async () => {
+// `settings` ในหน่วยความจำคือแหล่งความจริง — การบันทึกแค่เขียนมันลง server ไม่เอา response มาทับ
+async function saveSettingsNow() {
   try {
-    settings = await api.saveSettings(settings);
+    await api.saveSettings(settings);
+    saveWarning = null;
   } catch (error) {
-    serverWarnings = [...serverWarnings, error.message];
+    saveWarning = error.message;
+    throw error;
+  } finally {
     renderWarnings();
   }
-}, 400);
+}
+
+const saveSettingsSoon = debounce(() => saveSettingsNow().catch(() => {}), 400);
 
 // ---- ไมค์ ----
 
@@ -95,36 +110,58 @@ async function fillMicList() {
   select.value = mics.some((m) => m.id === settings.voice.deviceId) ? settings.voice.deviceId : '';
 }
 
-async function restartMic() {
-  await mic?.stop();
+function clearPendingResume() {
+  if (pendingResume) window.removeEventListener('pointerdown', pendingResume);
+  pendingResume = null;
+}
+
+async function doRestartMic() {
+  clearPendingResume();
+  const old = mic;
   mic = null;
   try {
+    await old?.stop();
+    const onEnded = () => setMicProblem('ไมค์หลุด — เสียบกลับแล้วระบบจะลองใหม่เอง');
     try {
-      mic = await startMic({ deviceId: settings.voice.deviceId, onLevel, onEnded: () => setMicProblem('ไมค์หลุด — เสียบกลับแล้วระบบจะลองใหม่เอง') });
+      mic = await startMic({ deviceId: settings.voice.deviceId, onLevel, onEnded });
     } catch (error) {
       if (error.name !== 'OverconstrainedError' && error.name !== 'NotFoundError') throw error;
-      mic = await startMic({ deviceId: null, onLevel, onEnded: () => setMicProblem('ไมค์หลุด — เสียบกลับแล้วระบบจะลองใหม่เอง') });
+      mic = await startMic({ deviceId: null, onLevel, onEnded });
     }
-    if (mic.context.state === 'suspended') {
+    const current = mic;
+    if (current.context.state === 'suspended') {
       setMicProblem('คลิกที่ใดก็ได้ในหน้านี้ 1 ครั้งเพื่อเปิดไมค์');
-      window.addEventListener('pointerdown', async () => {
-        await mic.context.resume();
-        setMicOk();
-      }, { once: true });
+      pendingResume = async () => {
+        pendingResume = null;
+        await current.context.resume();
+        if (mic === current && current.context.state === 'running') setMicOk();
+      };
+      window.addEventListener('pointerdown', pendingResume, { once: true });
     } else {
       setMicOk();
     }
     await fillMicList();
   } catch (error) {
-    setMicProblem(error.name === 'NotAllowedError'
-      ? 'เบราว์เซอร์ยังไม่ได้รับอนุญาตให้ใช้ไมค์ — กดไอคอนข้างช่อง URL เลือก "อนุญาต" ไมโครโฟน แล้วรีเฟรชหน้า'
-      : `เปิดไมค์ไม่ได้: ${error.message}`);
+    if (error.name === 'NotFoundError') {
+      setMicProblem('ไม่พบไมค์ในเครื่อง — เสียบไมค์แล้วระบบจะลองใหม่เอง');
+      await fillMicList().catch(() => {});
+    } else {
+      setMicProblem(error.name === 'NotAllowedError'
+        ? 'เบราว์เซอร์ยังไม่ได้รับอนุญาตให้ใช้ไมค์ — กดไอคอนข้างช่อง URL เลือก "อนุญาต" ไมโครโฟน แล้วรีเฟรชหน้า'
+        : `เปิดไมค์ไม่ได้: ${error.message}`);
+    }
   }
 }
 
+// ทำทีละรอบ: การรีสตาร์ทที่ซ้อนกันจะรอรอบก่อนหน้าจบก่อน
+let restartChain = Promise.resolve();
+function restartMic() {
+  restartChain = restartChain.then(doRestartMic);
+  return restartChain;
+}
+
 navigator.mediaDevices.addEventListener('devicechange', () => {
-  if (micWarning) restartMic();
-  else fillMicList();
+  (micWarning ? restartMic() : fillMicList()).catch(() => {});
 });
 
 $('mic-device').addEventListener('change', (event) => {
@@ -158,9 +195,13 @@ $('meter').addEventListener('pointerdown', (event) => {
 });
 
 $('copy-obs').addEventListener('click', async () => {
-  await navigator.clipboard.writeText(`${location.origin}/avatar/`);
   const button = $('copy-obs');
-  button.textContent = 'คัดลอกแล้ว ✓';
+  try {
+    await navigator.clipboard.writeText(`${location.origin}/avatar/`);
+    button.textContent = 'คัดลอกแล้ว ✓';
+  } catch {
+    button.textContent = 'คัดลอกไม่ได้';
+  }
   setTimeout(() => { button.textContent = 'คัดลอก URL สำหรับ OBS'; }, 1500);
 });
 

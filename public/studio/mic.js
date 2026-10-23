@@ -12,25 +12,36 @@ export async function startMic({ deviceId, onLevel, onEnded }) {
       autoGainControl: false,
     },
   });
-  const context = new AudioContext();
-  await context.audioWorklet.addModule('/studio/level-worklet.js');
-  const source = context.createMediaStreamSource(stream);
-  const meter = new AudioWorkletNode(context, 'level-meter');
-  // RMS ของเสียงพูดมักอยู่ราว 0.01–0.2 ใช้รากที่สองให้แถบระดับเสียงอ่านง่ายขึ้น
-  meter.port.onmessage = (event) => onLevel(Math.min(1, Math.sqrt(event.data)));
-  source.connect(meter);
-  meter.connect(context.destination); // ไม่มีเสียงออก (worklet ไม่เขียน output) แต่ทำให้ worklet ทำงานต่อเนื่อง
-  const [track] = stream.getAudioTracks();
-  track.addEventListener('ended', () => onEnded?.());
-  return {
-    context,
-    label: track.label,
-    async stop() {
-      meter.port.onmessage = null;
-      source.disconnect();
-      meter.disconnect();
-      for (const t of stream.getTracks()) t.stop();
-      await context.close();
-    },
-  };
+  let context;
+  try {
+    context = new AudioContext();
+    await context.audioWorklet.addModule('/studio/level-worklet.js');
+    const source = context.createMediaStreamSource(stream);
+    const meter = new AudioWorkletNode(context, 'level-meter');
+    // RMS ของเสียงพูดมักอยู่ราว 0.01–0.2 ใช้รากที่สองให้แถบระดับเสียงอ่านง่ายขึ้น
+    meter.port.onmessage = (event) => onLevel(Math.min(1, Math.sqrt(event.data)));
+    source.connect(meter);
+    meter.connect(context.destination); // ไม่มีเสียงออก (worklet ไม่เขียน output) แต่ทำให้ worklet ทำงานต่อเนื่อง
+    const [track] = stream.getAudioTracks();
+    track.addEventListener('ended', () => onEnded?.());
+    let stopping = null;
+    return {
+      context,
+      label: track.label,
+      stop() {
+        stopping ??= (async () => {
+          meter.port.onmessage = null;
+          source.disconnect();
+          meter.disconnect();
+          for (const t of stream.getTracks()) t.stop();
+          await context.close();
+        })();
+        return stopping;
+      },
+    };
+  } catch (error) {
+    for (const t of stream.getTracks()) t.stop();
+    await context?.close().catch(() => {});
+    throw error;
+  }
 }
