@@ -1,0 +1,15 @@
+{
+  "name": "avata-overlay",
+  "version": "0.1.0",
+  "description": "ตัวละคร PNGtuber ขยับตามเสียงไมค์ สำหรับใส่ใน OBS",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node src/cli.js",
+    "sample": "node scripts/make-sample.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
