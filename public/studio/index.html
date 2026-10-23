@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Avata-Overlay Studio</title>
+  <link rel="stylesheet" href="/shared/renderer.css">
+  <link rel="stylesheet" href="/studio/studio.css">
+</head>
+<body>
+  <header class="statusbar">
+    <strong>Avata-Overlay</strong>
+    <span class="pill" id="st-server" data-ok="no">server …</span>
+    <span class="pill" id="st-mic" data-ok="no">ไมค์ …</span>
+    <span class="pill" id="st-hotkeys" data-ok="no">ปุ่มลัด …</span>
+    <span class="pill" id="st-avatars" data-ok="no">OBS: 0</span>
+    <button id="copy-obs" type="button">คัดลอก URL สำหรับ OBS</button>
+  </header>
+  <div id="warnings" class="warnings" hidden></div>
+  <main class="layout">
+    <section class="preview-col">
+      <div class="preview checker"><div id="preview"></div></div>
+      <section class="panel">
+        <h2>ไมค์</h2>
+        <label class="row">อุปกรณ์ <select id="mic-device"></select></label>
+        <div class="meter" id="meter" title="คลิกเพื่อตั้งเกณฑ์เริ่มพูด">
+          <div id="meter-fill"></div>
+          <div id="meter-threshold"></div>
+        </div>
+        <label class="row">เกณฑ์เริ่มพูด <input id="threshold" type="range" min="0" max="1" step="0.01"> <output id="threshold-out"></output></label>
+        <label class="row">หน่วงปิดปาก <input id="release" type="range" min="0" max="1000" step="10"> <output id="release-out"></output></label>
+        <p class="hint">พูดปกติแล้วดูแถบสีเขียว ตั้งเส้นสีแดงให้อยู่เหนือเสียงรบกวนตอนเงียบ</p>
+      </section>
+    </section>
+    <section class="editor-col" id="editor"></section>
+  </main>
+  <script type="module" src="/studio/studio.js"></script>
+</body>
+</html>
