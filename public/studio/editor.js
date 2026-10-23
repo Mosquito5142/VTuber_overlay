@@ -16,42 +16,78 @@ function h(tag, props = {}, ...children) {
   return el;
 }
 
-function debounce(fn, ms) {
-  let timer;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
-}
-
 export function createEditor(container, { api, send, onSelectAvatar }) {
   let model = null;
   let draft = null;
   let avatars = [];
   let errors = [];
   let capturing = null;
+  let newAvatarName = '';
+  let newExpressionName = '';
 
   const setErrors = (error) => {
     errors = error.errors?.length ? error.errors : [error.message];
     render();
   };
 
-  const saveSoon = debounce(async () => {
-    if (!model?.avatar || !draft) return;
-    try {
-      await api.saveConfig(model.avatar, draft);
-      errors = [];
-      render();
-    } catch (error) {
-      setErrors(error);
-    }
-  }, 300);
+  // บันทึกทีละรอบ: ถ้ามีการแก้ระหว่างบันทึก จะวนบันทึกซ้ำจนไม่มีอะไรค้าง
+  let saveTimer = null;
+  let inFlight = null;
+  let dirty = false;
+
+  function runSave() {
+    if (inFlight) return inFlight;
+    inFlight = (async () => {
+      try {
+        while (dirty) {
+          dirty = false;
+          if (!model?.avatar || !draft) break;
+          const hadErrors = errors.length > 0;
+          try {
+            await api.saveConfig(model.avatar, draft);
+            errors = [];
+            if (hadErrors) render(); // วาดใหม่เฉพาะตอนต้องล้างข้อผิดพลาด (กันช่องกรอกเสียโฟกัส)
+          } catch (error) {
+            setErrors(error);
+          }
+        }
+      } finally {
+        inFlight = null;
+      }
+    })();
+    return inFlight;
+  }
+
+  function saveSoon() {
+    dirty = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { saveTimer = null; runSave(); }, 300);
+  }
+
+  async function flushSave() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    await runSave();
+  }
 
   function change(mutate) {
     mutate(draft);
     render();
     saveSoon();
   }
+
+  // กันเบราว์เซอร์เปิดไฟล์ที่ลากมาวางนอกช่อง
+  window.addEventListener('dragover', (event) => event.preventDefault());
+  window.addEventListener('drop', (event) => event.preventDefault());
+
+  // คลิกที่อื่นระหว่างรอจับปุ่ม = ยกเลิก (แก้ปุ่มเดิมในที่ ไม่วาดใหม่ เพื่อให้คลิกถัดไปไม่หลุด)
+  window.addEventListener('pointerdown', (event) => {
+    if (!capturing) return;
+    const { el, label } = capturing;
+    if (el?.contains(event.target)) return;
+    capturing = null;
+    if (el) { el.className = 'key'; el.textContent = label; }
+  }, true);
 
   window.addEventListener('keydown', (event) => {
     if (!capturing) return;
@@ -73,25 +109,33 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
 
   function keyButton(id, key, apply) {
     const waiting = capturing?.id === id;
-    return h('button', {
+    const label = key ? `ปุ่ม: ${key}` : 'ตั้งปุ่มลัด';
+    const button = h('button', {
       type: 'button',
       class: waiting ? 'key waiting' : 'key',
-      onclick: () => { capturing = { id, apply }; render(); },
-    }, waiting ? 'กดปุ่มที่ต้องการ… (Esc = ล้าง)' : key ? `ปุ่ม: ${key}` : 'ตั้งปุ่มลัด');
+      onclick: () => { capturing = { id, apply, label, el: button }; render(); },
+    }, waiting ? 'กดปุ่มที่ต้องการ… (Esc = ล้าง)' : label);
+    if (waiting) Object.assign(capturing, { label, el: button });
+    return button;
   }
 
   function avatarPanel() {
-    const nameInput = h('input', { placeholder: 'ชื่อใหม่ เช่น my-char', maxlength: 32 });
+    const nameInput = h('input', {
+      placeholder: 'ชื่อใหม่ เช่น my-char', maxlength: 32, value: newAvatarName,
+      oninput: (event) => { newAvatarName = event.target.value; },
+    });
     const create = async () => {
-      const name = nameInput.value.trim().toLowerCase();
+      const name = newAvatarName.trim().toLowerCase();
       if (!NAME_PATTERN.test(name)) {
         errors = [`ชื่อตัวละคร${NAME_HINT}`];
-        render();
+        render(); // ค่าที่พิมพ์ค้างอยู่ใน newAvatarName จึงไม่หาย
         return;
       }
       try {
+        await flushSave();
         avatars = (await api.createAvatar(name)).avatars;
         errors = [];
+        newAvatarName = '';
         await onSelectAvatar(name);
       } catch (error) {
         setErrors(error);
@@ -99,7 +143,7 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
     };
     return panel('ตัวละคร',
       h('div', { class: 'row' },
-        h('select', { onchange: (event) => onSelectAvatar(event.target.value).catch(setErrors) },
+        h('select', { onchange: async (event) => { try { await flushSave(); await onSelectAvatar(event.target.value); } catch (error) { setErrors(error); } } },
           avatars.map((name) => h('option', { value: name, selected: name === model?.avatar }, name))),
         nameInput,
         h('button', { type: 'button', onclick: create }, '＋ ตัวละครใหม่')));
@@ -112,9 +156,17 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
       render();
       return;
     }
+    if (file.size > 10 * 1024 * 1024) {
+      errors = ['ไฟล์ใหญ่เกินไป (สูงสุด 10 MB)'];
+      render();
+      return;
+    }
     try {
       await api.uploadFrame(model.avatar, expression, frame, file);
-      errors = [];
+      if (errors.length) {
+        errors = [];
+        render();
+      }
     } catch (error) {
       setErrors(error);
     }
@@ -133,7 +185,7 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
       },
     },
     has
-      ? h('img', { src: `/avatars/${encodeURIComponent(model.avatar)}/${expression}/${frame}.png?v=${model.imageRev}`, alt: '' })
+      ? h('img', { src: `/avatars/${encodeURIComponent(model.avatar)}/${encodeURIComponent(expression)}/${frame}.png?v=${model.imageRev}`, alt: '' })
       : h('span', {}, required ? 'จำเป็น ＋' : '＋'),
     h('input', { type: 'file', accept: 'image/png', hidden: true, onchange: (event) => upload(expression, frame, event.target.files[0]) }));
   }
@@ -171,14 +223,18 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
   }
 
   function expressionsPanel() {
-    const nameInput = h('input', { placeholder: 'ชื่อสีหน้า เช่น happy', maxlength: 32 });
+    const nameInput = h('input', {
+      placeholder: 'ชื่อสีหน้า เช่น happy', maxlength: 32, value: newExpressionName,
+      oninput: (event) => { newExpressionName = event.target.value; },
+    });
     const add = () => {
-      const name = nameInput.value.trim().toLowerCase();
+      const name = newExpressionName.trim().toLowerCase();
       if (name === 'default' || !NAME_PATTERN.test(name) || draft.expressions[name]) {
         errors = [`ชื่อสีหน้า${NAME_HINT} ห้ามซ้ำ และห้ามใช้ default`];
         render();
         return;
       }
+      newExpressionName = '';
       change((d) => { d.expressions[name] = { key: null, mode: 'timed', seconds: 3 }; });
     };
     return panel('สีหน้า',
@@ -241,6 +297,14 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
 
   return {
     setModel(message) {
+      if (model && message.avatar !== model.avatar) capturing = null;
+      if (model && draft && message.avatar === model.avatar && (saveTimer || inFlight)) {
+        // มีการแก้ค้าง/กำลังบันทึก: ห้ามให้ข้อความของรอบก่อนมาทับ draft
+        const imagesChanged = message.imageRev !== model.imageRev;
+        model = message;
+        if (imagesChanged) render();
+        return;
+      }
       const unchanged = model && draft
         && message.avatar === model.avatar
         && message.imageRev === model.imageRev
