@@ -292,3 +292,38 @@ test('a second server on the same port fails with EADDRINUSE', async () => {
     await ctx.teardown();
   }
 });
+
+test('an oversized websocket frame does not crash the server', async () => {
+  const ctx = await setup();
+  try {
+    const studio = await connect(ctx.server.url, 'studio');
+    await studio.waitFor((m) => m.type === 'state');
+    studio.send({ type: 'voice', pad: 'x'.repeat(20 * 1024) });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const res = await fetch(`${ctx.server.url}/api/avatar`);
+    assert.equal(res.status, 200);
+    const again = await connect(ctx.server.url, 'studio');
+    await again.waitFor((m) => m.type === 'state');
+    again.close();
+  } finally {
+    await ctx.teardown();
+  }
+});
+
+test('mouth closes when voice messages stop while talking', async () => {
+  const ctx = await setup();
+  try {
+    const avatar = await connect(ctx.server.url, 'avatar');
+    await avatar.waitFor((m) => m.type === 'state');
+    const studio = await connect(ctx.server.url, 'studio');
+    await studio.waitFor((m) => m.type === 'state');
+    avatar.clear();
+    studio.send({ type: 'voice', level: 0.5, talking: true });
+    await avatar.waitFor(isState({ talking: true }));
+    await avatar.waitFor(isState({ talking: false }), 1500);
+    studio.close();
+    avatar.close();
+  } finally {
+    await ctx.teardown();
+  }
+});

@@ -122,3 +122,11 @@ test('revision increases with every change', () => {
   state.triggerExpression('angry');
   assert.equal(state.snapshot().revision, before + 2);
 });
+
+test('inherited object property names are not expressions', () => {
+  const { state } = setup();
+  for (const name of ['toString', 'constructor', '__proto__']) {
+    assert.equal(state.triggerExpression(name), false);
+    assert.equal(state.snapshot().expression, 'default');
+  }
+});

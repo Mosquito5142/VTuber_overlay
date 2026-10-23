@@ -1,10 +1,10 @@
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { BUILTIN_ACTIONS, FRAME_NAMES, NAME_PATTERN } from '../public/shared/constants.js';
+import { BUILTIN_ACTIONS, FRAME_NAMES, isValidName } from '../public/shared/constants.js';
 import { normalizeKey } from '../public/shared/keys.js';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const NAME_RULE = 'ใช้ได้เฉพาะ a-z, 0-9 และ - (ไม่เกิน 32 ตัว)';
+const NAME_RULE = 'ใช้ได้เฉพาะ a-z, 0-9 และ - (ไม่เกิน 32 ตัว) และห้ามใช้ชื่อที่ Windows สงวน เช่น con, nul, aux, com1';
 
 export class ConfigError extends Error {
   constructor(errors) {
@@ -29,7 +29,7 @@ export function validateAvatarConfig(input) {
   if (!isPlainObject(input)) return { ok: false, errors: ['avatar.json ต้องเป็นออบเจกต์ JSON'] };
   const errors = [];
   if (input.version !== 1) errors.push('version ต้องเป็น 1');
-  if (typeof input.name !== 'string' || !NAME_PATTERN.test(input.name)) errors.push(`ชื่อตัวละคร${NAME_RULE}`);
+  if (!isValidName(input.name)) errors.push(`ชื่อตัวละคร${NAME_RULE}`);
   const value = { version: 1, name: input.name, expressions: {}, actions: {}, motion: {} };
   const keyOwners = new Map();
 
@@ -54,7 +54,7 @@ export function validateAvatarConfig(input) {
     for (const [name, def] of Object.entries(expressions)) {
       const owner = `สีหน้า ${name}`;
       if (name === 'default') { errors.push('ห้ามใส่ default ใน expressions เพราะเป็นสีหน้าปกติอยู่แล้ว'); continue; }
-      if (!NAME_PATTERN.test(name)) { errors.push(`${owner}: ชื่อ${NAME_RULE}`); continue; }
+      if (!isValidName(name)) { errors.push(`${owner}: ชื่อ${NAME_RULE}`); continue; }
       if (!isPlainObject(def)) { errors.push(`${owner}: ต้องเป็นออบเจกต์`); continue; }
       if (def.mode !== 'timed' && def.mode !== 'toggle') { errors.push(`${owner}: mode ต้องเป็น timed หรือ toggle`); continue; }
       const out = { key: claimKey(def.key, owner), mode: def.mode };
@@ -99,7 +99,7 @@ export function validateSettings(input) {
   if (!isPlainObject(input)) return { ok: false, errors: ['settings.json ต้องเป็นออบเจกต์ JSON'] };
   const errors = [];
   const activeAvatar = input.activeAvatar ?? null;
-  if (activeAvatar !== null && (typeof activeAvatar !== 'string' || !NAME_PATTERN.test(activeAvatar))) errors.push('activeAvatar ไม่ถูกต้อง');
+  if (activeAvatar !== null && !isValidName(activeAvatar)) errors.push('activeAvatar ไม่ถูกต้อง');
   const voice = isPlainObject(input.voice) ? input.voice : {};
   const threshold = voice.threshold ?? DEFAULT_SETTINGS.voice.threshold;
   const releaseMs = voice.releaseMs ?? DEFAULT_SETTINGS.voice.releaseMs;
@@ -133,7 +133,7 @@ async function writeJsonAtomic(file, data) {
 }
 
 function checkName(name, label = 'ชื่อตัวละคร') {
-  if (typeof name !== 'string' || !NAME_PATTERN.test(name)) throw new ConfigError([`${label} "${name}" ${NAME_RULE}`]);
+  if (!isValidName(name)) throw new ConfigError([`${label} "${name}" ${NAME_RULE}`]);
 }
 
 async function requireAvatarDir(avatarsDir, name) {
@@ -150,7 +150,7 @@ async function requireAvatarDir(avatarsDir, name) {
 export async function listAvatars(avatarsDir) {
   try {
     const entries = await readdir(avatarsDir, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory() && NAME_PATTERN.test(e.name)).map((e) => e.name).sort();
+    return entries.filter((e) => e.isDirectory() && isValidName(e.name)).map((e) => e.name).sort();
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
@@ -167,7 +167,7 @@ export async function scanFrames(avatarDir) {
     throw error;
   }
   for (const entry of entries) {
-    if (!entry.isDirectory() || !NAME_PATTERN.test(entry.name)) continue;
+    if (!entry.isDirectory() || !isValidName(entry.name)) continue;
     const names = await readdir(path.join(avatarDir, entry.name));
     const frames = FRAME_NAMES.filter((frame) => names.includes(`${frame}.png`));
     if (frames.length) files[entry.name] = frames;

@@ -1,9 +1,9 @@
-import { BUILTIN_ACTIONS, FRAME_NAMES, NAME_PATTERN } from '/shared/constants.js';
+import { BUILTIN_ACTIONS, FRAME_NAMES, isValidName } from '/shared/constants.js';
 import { keyFromBrowserEvent } from '/shared/keys.js';
 
 const FRAME_LABELS = { idle: 'เงียบ', talk: 'พูด', blink: 'หลับตา', 'blink-talk': 'พูด+หลับตา' };
 const ACTION_LABELS = { jump: 'กระโดด', shake: 'สั่น', spin: 'หมุน', wobble: 'เด้งดึ๋ง' };
-const NAME_HINT = 'ใช้ได้เฉพาะ a-z, 0-9 และ - (ไม่เกิน 32 ตัว)';
+const NAME_HINT = 'ใช้ได้เฉพาะ a-z, 0-9 และ - (ไม่เกิน 32 ตัว) และห้ามใช้ชื่อที่ Windows สงวน เช่น con, nul, aux, com1';
 
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -126,7 +126,7 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
     });
     const create = async () => {
       const name = newAvatarName.trim().toLowerCase();
-      if (!NAME_PATTERN.test(name)) {
+      if (!isValidName(name)) {
         errors = [`ชื่อตัวละคร${NAME_HINT}`];
         render(); // ค่าที่พิมพ์ค้างอยู่ใน newAvatarName จึงไม่หาย
         return;
@@ -229,7 +229,7 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
     });
     const add = () => {
       const name = newExpressionName.trim().toLowerCase();
-      if (name === 'default' || !NAME_PATTERN.test(name) || draft.expressions[name]) {
+      if (name === 'default' || !isValidName(name) || draft.expressions[name]) {
         errors = [`ชื่อสีหน้า${NAME_HINT} ห้ามซ้ำ และห้ามใช้ default`];
         render();
         return;

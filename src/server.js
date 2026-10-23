@@ -14,6 +14,7 @@ import { createState } from './state.js';
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC_DIR = path.join(PROJECT_ROOT, 'public');
 const MAX_JSON_BYTES = 64 * 1024;
+const VOICE_STALE_MS = 1000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const CONFIG_ROUTE = /^\/api\/avatars\/([^/]+)\/config$/;
 const IMAGE_ROUTE = /^\/api\/avatars\/([^/]+)\/images\/([^/]+)\/([^/]+)$/;
@@ -31,6 +32,7 @@ export async function startServer({ root = PROJECT_ROOT, port = DEFAULT_PORT, ho
   let hotkeyStatus = { ok: false, error: 'ปิดปุ่มลัด global อยู่' };
   let actualPort = port;
   const clients = new Set();
+  let voiceTimer = null;
 
   const isAllowedOrigin = (origin) => !origin || origin === `http://127.0.0.1:${actualPort}` || origin === `http://localhost:${actualPort}`;
 
@@ -178,7 +180,12 @@ export async function startServer({ root = PROJECT_ROOT, port = DEFAULT_PORT, ho
       return;
     }
     if (client.role !== 'studio') return;
-    if (message.type === 'voice') state.setTalking(message.talking === true);
+    if (message.type === 'voice') {
+      state.setTalking(message.talking === true);
+      // หน้าควบคุมหยุดส่งเสียงทั้งที่ยังพูดอยู่ (เช่น AudioContext ค้าง) ให้หุบปากเอง
+      clearTimeout(voiceTimer);
+      voiceTimer = message.talking === true ? setTimeout(() => state.setTalking(false), VOICE_STALE_MS) : null;
+    }
     else if (message.type === 'expression' && typeof message.name === 'string') state.triggerExpression(message.name);
     else if (message.type === 'action' && BUILTIN_ACTIONS.includes(message.name)) broadcast({ type: 'play', action: message.name });
   }
@@ -186,6 +193,8 @@ export async function startServer({ root = PROJECT_ROOT, port = DEFAULT_PORT, ho
   function onConnection(ws) {
     const client = { ws, role: null };
     clients.add(client);
+    // เฟรมใหญ่เกิน/ไม่ถูกต้องทำให้ ws ส่ง 'error' ถ้าไม่มีตัวรับโปรแกรมจะล่ม ('close' ยังทำงานตามปกติ)
+    ws.on('error', () => {});
     ws.on('message', (data) => {
       let message;
       try {
@@ -234,6 +243,7 @@ export async function startServer({ root = PROJECT_ROOT, port = DEFAULT_PORT, ho
     state,
     async close() {
       hotkeyHandle?.stop();
+      clearTimeout(voiceTimer);
       state.dispose();
       for (const client of clients) client.ws.terminate();
       await new Promise((resolve) => wss.close(resolve));

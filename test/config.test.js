@@ -152,3 +152,21 @@ test('loadSettings falls back to defaults with a warning', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('Windows reserved device names are rejected as names', async () => {
+  const dir = await tempDir();
+  try {
+    for (const name of ['con', 'nul', 'aux', 'prn', 'com1', 'lpt9']) {
+      await assert.rejects(createAvatar(dir, name), ConfigError);
+    }
+    const bad = validateAvatarConfig({ version: 1, name: 'me', expressions: { nul: { key: null, mode: 'toggle' } } });
+    assert.equal(bad.ok, false);
+    assert.equal(validateSettings({ activeAvatar: 'con' }).ok, false);
+    await createAvatar(dir, 'console');
+    assert.deepEqual(await listAvatars(dir), ['console']);
+    await mkdir(path.join(dir, 'aux'));
+    assert.deepEqual(await listAvatars(dir), ['console']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

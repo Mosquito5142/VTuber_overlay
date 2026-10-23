@@ -37,3 +37,8 @@ test('returns null when there is no default idle', () => {
   assert.equal(resolveFrame({}, 'default', 'idle'), null);
   assert.equal(resolveFrame({ happy: ['talk'] }, 'default', 'idle'), null);
 });
+
+test('inherited property names do not break resolution', () => {
+  assert.equal(resolveFrame({ default: ['idle'] }, 'constructor', 'idle'), 'default/idle.png');
+  assert.equal(resolveFrame({ default: ['idle'] }, '__proto__', 'idle'), 'default/idle.png');
+});

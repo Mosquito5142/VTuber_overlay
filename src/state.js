@@ -52,15 +52,15 @@ export function createState({ setTimeout: setTimer = globalThis.setTimeout, clea
     },
     updateExpressions(config) {
       expressions = config?.expressions ?? {};
-      if (expression !== 'default' && !expressions[expression]) setExpression('default');
+      if (expression !== 'default' && !Object.hasOwn(expressions, expression)) setExpression('default');
     },
     triggerExpression(name) {
       if (name === 'default') {
         setExpression('default');
         return true;
       }
+      if (!Object.hasOwn(expressions, name)) return false;
       const definition = expressions[name];
-      if (!definition) return false;
       if (definition.mode === 'toggle') {
         setExpression(expression === name ? 'default' : name);
         return true;

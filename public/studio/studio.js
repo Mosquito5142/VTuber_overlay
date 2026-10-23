@@ -160,9 +160,10 @@ async function doRestartMic() {
       setMicProblem('ไม่พบไมค์ในเครื่อง — เสียบไมค์แล้วระบบจะลองใหม่เอง');
       await fillMicList().catch(() => {});
     } else {
-      setMicProblem(error.name === 'NotAllowedError'
-        ? 'เบราว์เซอร์ยังไม่ได้รับอนุญาตให้ใช้ไมค์ — กดไอคอนข้างช่อง URL เลือก "อนุญาต" ไมโครโฟน แล้วรีเฟรชหน้า'
-        : `เปิดไมค์ไม่ได้: ${error.message}`);
+      let message = `เปิดไมค์ไม่ได้: ${error.message}`;
+      if (error.name === 'NotAllowedError') message = 'เบราว์เซอร์ยังไม่ได้รับอนุญาตให้ใช้ไมค์ — กดไอคอนข้างช่อง URL เลือก "อนุญาต" ไมโครโฟน แล้วรีเฟรชหน้า';
+      else if (error.name === 'NotReadableError') message = 'ไมค์ถูกโปรแกรมอื่นใช้อยู่ — ปิดโปรแกรมนั้น (เช่น Discord/โปรแกรมอัดเสียง) แล้วเลือกไมค์ใหม่อีกครั้ง';
+      setMicProblem(message);
     }
   }
 }
