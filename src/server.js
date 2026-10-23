@@ -218,7 +218,7 @@ export async function startServer({ root = PROJECT_ROOT, port = DEFAULT_PORT, ho
 
   // สร้างหลัง listen สำเร็จเท่านั้น: ws ส่งต่อ 'error' ของ http server ไปที่ wss
   // ถ้าสร้างก่อนแล้วพอร์ตชน จะกลายเป็น error ที่ไม่มีใครรับและโปรแกรมล่ม
-  const wss = new WebSocketServer({ server, path: '/ws', verifyClient: ({ origin }) => isAllowedOrigin(origin) });
+  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024, verifyClient: ({ origin }) => isAllowedOrigin(origin) });
   wss.on('connection', onConnection);
 
   let hotkeyHandle = null;

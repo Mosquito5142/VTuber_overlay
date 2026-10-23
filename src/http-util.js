@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
+import { pipeline } from 'node:stream';
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -46,21 +47,35 @@ export async function serveFile(res, baseDir, relativePath) {
     'Content-Length': info.size,
     'Cache-Control': 'no-cache',
   });
-  createReadStream(full).pipe(res);
+  // header ส่งไปแล้ว ถ้าอ่านไฟล์พลาดกลางทางทำได้แค่ตัดการเชื่อมต่อ (pipeline ทำให้เอง)
+  pipeline(createReadStream(full), res, () => {});
   return true;
 }
 
 export function readBody(req, limit) {
   return new Promise((resolve, reject) => {
+    const tooLarge = () => {
+      const error = new Error('body too large');
+      error.code = 'TOO_LARGE';
+      return error;
+    };
+    // ไม่ destroy: ต้องอ่านทิ้งให้หมดเพื่อให้ส่ง 413 กลับไปถึง client ได้
+    if (Number(req.headers['content-length']) > limit) {
+      req.resume();
+      reject(tooLarge());
+      return;
+    }
     const chunks = [];
     let size = 0;
+    let exceeded = false;
     req.on('data', (chunk) => {
+      if (exceeded) return;
       size += chunk.length;
       if (size > limit) {
-        const error = new Error('body too large');
-        error.code = 'TOO_LARGE';
-        req.destroy();
-        reject(error);
+        exceeded = true;
+        chunks.length = 0;
+        req.resume();
+        reject(tooLarge());
         return;
       }
       chunks.push(chunk);

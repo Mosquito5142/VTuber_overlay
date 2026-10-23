@@ -14,6 +14,7 @@ async function setup() {
   const charDir = path.join(root, 'avatars', 'test-char');
   await mkdir(path.join(charDir, 'default'), { recursive: true });
   await writeFile(path.join(charDir, 'default', 'idle.png'), PNG);
+  await writeFile(path.join(root, 'secret.txt'), 'top secret');
   await writeFile(path.join(charDir, 'avatar.json'), JSON.stringify({
     version: 1, name: 'test-char', expressions: { happy: { key: 'F1', mode: 'toggle' } }, actions: {}, motion: {},
   }));
@@ -239,11 +240,42 @@ test('rejects writes from other websites and serves pages', async () => {
     assert.equal(root.status, 302);
     assert.equal(root.headers.location, '/studio/');
 
-    const traversal = await request('GET', `${ctx.server.url}/avatars/..%2F..%2Fpackage.json`);
-    assert.equal(traversal.status, 404);
+    for (const escape of ['..%2Fsecret.txt', '..%5Csecret.txt']) {
+      const traversal = await request('GET', `${ctx.server.url}/avatars/${escape}`);
+      assert.equal(traversal.status, 404, escape);
+    }
 
     const badJson = await request('PUT', `${ctx.server.url}/api/settings`, { body: '{nope', headers: { 'Content-Type': 'application/json' } });
     assert.equal(badJson.status, 400);
+  } finally {
+    await ctx.teardown();
+  }
+});
+
+test('oversized JSON body gets 413 instead of a connection reset', async () => {
+  const ctx = await setup();
+  try {
+    const big = JSON.stringify({ activeAvatar: null, pad: 'x'.repeat(70 * 1024) });
+    const res = await request('PUT', `${ctx.server.url}/api/settings`, { body: big, headers: { 'Content-Type': 'application/json' } });
+    assert.equal(res.status, 413);
+    assert.ok(Array.isArray(res.json.errors));
+  } finally {
+    await ctx.teardown();
+  }
+});
+
+test('websocket upgrade from a foreign origin is rejected', async () => {
+  const ctx = await setup();
+  try {
+    const ws = new WebSocket(`${ctx.server.url.replace('http://', 'ws://')}/ws`, { origin: 'http://evil.example' });
+    let opened = false;
+    ws.on('open', () => { opened = true; });
+    const status = await new Promise((resolve, reject) => {
+      ws.once('unexpected-response', (req, res) => { res.resume(); resolve(res.statusCode); });
+      ws.once('error', reject);
+    });
+    assert.equal(status, 401); // ws ตอบ 401 เมื่อ verifyClient ปฏิเสธ
+    assert.equal(opened, false);
   } finally {
     await ctx.teardown();
   }
