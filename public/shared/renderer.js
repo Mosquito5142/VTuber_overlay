@@ -37,10 +37,9 @@ export function createRenderer(container) {
         img.className = 'av-frame';
         img.alt = '';
         img.draggable = false;
-        // รูปเสีย: ตัดออกจากรายการแล้วให้ลำดับสำรองเลือกรูปอื่นแทน
+        // รูปเสีย: จดไว้แล้วให้ลำดับสำรองเลือกรูปอื่นแทน
         img.addEventListener('error', () => {
           if (owner !== generation) return;
-          model.files[expr] = (model.files[expr] ?? []).filter((f) => f !== frame);
           img.remove();
           images.delete(rel);
           if (visible === img) visible = null;
@@ -55,7 +54,11 @@ export function createRenderer(container) {
 
   function update() {
     if (!model?.avatar) return;
-    const rel = resolveFrame(model.files, expression, wantedFrame({ talking, blinking }));
+    const usable = {};
+    for (const [expr, frames] of Object.entries(model.files)) {
+      usable[expr] = frames.filter((f) => images.has(`${expr}/${f}.png`));
+    }
+    const rel = resolveFrame(usable, expression, wantedFrame({ talking, blinking }));
     const img = (rel && images.get(rel)) ?? null;
     if (img === visible) return;
     visible?.classList.remove('av-visible');
@@ -65,6 +68,7 @@ export function createRenderer(container) {
 
   function scheduleBlink() {
     clearTimeout(blinkTimer);
+    blinking = false;
     const range = model?.config?.motion?.blinkEvery;
     if (!range) return;
     const wait = (range[0] + Math.random() * (range[1] - range[0])) * 1000;
@@ -91,8 +95,9 @@ export function createRenderer(container) {
 
   return {
     setModel(next) {
-      const needImages = !model || next.avatar !== model.avatar || next.imageRev !== model.imageRev;
-      model = { avatar: next.avatar, config: next.config, files: structuredClone(next.files ?? {}), imageRev: next.imageRev };
+      const sig = JSON.stringify(Object.entries(next.files ?? {}).sort());
+      const needImages = !model || next.avatar !== model.avatar || next.imageRev !== model.imageRev || sig !== model.sig;
+      model = { avatar: next.avatar, config: next.config, files: structuredClone(next.files ?? {}), imageRev: next.imageRev, sig };
       if (needImages) rebuildImages();
       applyMotion();
       scheduleBlink();
