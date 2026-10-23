@@ -13,6 +13,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "uiohook-napi": "^1.5.5"
+    "uiohook-napi": "^1.5.5",
+    "ws": "^8.22.0"
   }
 }
