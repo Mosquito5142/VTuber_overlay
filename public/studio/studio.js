@@ -2,6 +2,7 @@ import { createRenderer } from '/shared/renderer.js';
 import { connectSocket } from '/shared/socket.js';
 import { createVoiceGate } from '/shared/voice-gate.js';
 import { api } from '/studio/api.js';
+import { createEditor } from '/studio/editor.js';
 import { listMics, startMic } from '/studio/mic.js';
 
 const $ = (id) => document.getElementById(id);
@@ -14,6 +15,11 @@ const debounce = (fn, ms) => {
 };
 
 const preview = createRenderer($('preview'));
+const editor = createEditor($('editor'), {
+  api,
+  send: (message) => socket.send(message),
+  onSelectAvatar: selectAvatar,
+});
 let settings;
 let startupWarning = null;
 try {
@@ -52,8 +58,10 @@ const socket = connectSocket({
     setPill('st-server', false, 'server หลุด — กำลังต่อใหม่', 'เปิด start.bat ไว้หรือยัง?');
   },
   onMessage(message) {
-    if (message.type === 'config') preview.setModel(message);
-    else if (message.type === 'state') preview.setState(message);
+    if (message.type === 'config') {
+      preview.setModel(message);
+      editor.setModel(message);
+    } else if (message.type === 'state') preview.setState(message);
     else if (message.type === 'play') preview.play(message.action);
     else if (message.type === 'status') {
       setPill('st-hotkeys', message.hotkeys.ok, message.hotkeys.ok ? 'ปุ่มลัด ✓' : 'ปุ่มลัดใช้ไม่ได้', message.hotkeys.error ?? '');
@@ -78,6 +86,12 @@ async function saveSettingsNow() {
 }
 
 const saveSettingsSoon = debounce(() => saveSettingsNow().catch(() => {}), 400);
+
+async function selectAvatar(name) {
+  settings.activeAvatar = name;
+  await saveSettingsNow();
+  editor.setAvatars((await api.listAvatars()).avatars);
+}
 
 // ---- ไมค์ ----
 
@@ -120,7 +134,7 @@ async function doRestartMic() {
   const old = mic;
   mic = null;
   try {
-    await old?.stop();
+    await old?.stop().catch(() => {});
     const onEnded = () => setMicProblem('ไมค์หลุด — เสียบกลับแล้วระบบจะลองใหม่เอง');
     try {
       mic = await startMic({ deviceId: settings.voice.deviceId, onLevel, onEnded });
@@ -156,7 +170,7 @@ async function doRestartMic() {
 // ทำทีละรอบ: การรีสตาร์ทที่ซ้อนกันจะรอรอบก่อนหน้าจบก่อน
 let restartChain = Promise.resolve();
 function restartMic() {
-  restartChain = restartChain.then(doRestartMic);
+  restartChain = restartChain.then(doRestartMic, doRestartMic);
   return restartChain;
 }
 
@@ -207,3 +221,8 @@ $('copy-obs').addEventListener('click', async () => {
 
 showVoiceSettings();
 restartMic();
+try {
+  editor.setAvatars((await api.listAvatars()).avatars);
+} catch {
+  // เซิร์ฟเวอร์ยังไม่พร้อม — ปล่อยรายการตัวละครว่างไว้
+}
