@@ -182,6 +182,9 @@ export async function startServer({ root = PROJECT_ROOT, port = DEFAULT_PORT, ho
     if (client.role !== 'studio') return;
     if (message.type === 'voice') {
       state.setTalking(message.talking === true);
+      // ส่งความดังเสียงให้หน้าตัวละครใช้คุมแรงเด้ง (ไม่ผ่าน state เพราะเปลี่ยน ~30 ครั้ง/วินาที)
+      const level = Number(message.level);
+      broadcast({ type: 'level', level: Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0 }, 'avatar');
       // หน้าควบคุมหยุดส่งเสียงทั้งที่ยังพูดอยู่ (เช่น AudioContext ค้าง) ให้หุบปากเอง
       clearTimeout(voiceTimer);
       voiceTimer = message.talking === true ? setTimeout(() => state.setTalking(false), VOICE_STALE_MS) : null;

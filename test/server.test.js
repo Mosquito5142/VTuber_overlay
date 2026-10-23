@@ -104,6 +104,10 @@ test('studio voice and expression reach the avatar; studio leaving closes the mo
 
     studio.send({ type: 'voice', level: 0.5, talking: true });
     await avatar.waitFor(isState({ talking: true }));
+    await avatar.waitFor((m) => m.type === 'level' && m.level === 0.5);
+
+    studio.send({ type: 'voice', level: 7, talking: true });
+    await avatar.waitFor((m) => m.type === 'level' && m.level === 1);
 
     studio.send({ type: 'expression', name: 'happy' });
     await avatar.waitFor(isState({ expression: 'happy' }));

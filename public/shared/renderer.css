@@ -1,10 +1,12 @@
 .av-root { position: relative; width: 100%; height: 100%; transform-origin: 50% 100%; }
 .av-root.av-breathe { animation: av-breathe 3s ease-in-out infinite; }
-.av-bounce { width: 100%; height: 100%; transform: translateY(0); transition: transform 80ms ease-out; }
-.av-bounce.av-talking { transform: translateY(calc(var(--av-talk-bounce, 8px) * -1)); }
+/* ตำแหน่ง/ยืดหดของ .av-bounce คุมด้วย JS (สปริงตามความดังเสียง + ส่ายตัวตอนนิ่ง) */
+.av-bounce { width: 100%; height: 100%; transform-origin: 50% 100%; will-change: transform; }
 .av-action { position: relative; width: 100%; height: 100%; transform-origin: 50% 100%; }
-.av-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; visibility: hidden; user-select: none; }
-.av-frame.av-visible { visibility: visible; }
+/* เปลี่ยนรูปแบบเฟด: รูปใหม่ค่อยๆ ขึ้นทับรูปเก่าที่ยังทึบอยู่ จึงไม่มีจังหวะที่ตัวละครโปร่ง */
+.av-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; z-index: 0; user-select: none; }
+.av-frame.av-leaving { opacity: 1; z-index: 1; }
+.av-frame.av-visible { opacity: 1; z-index: 2; transition: opacity 70ms linear; }
 
 @keyframes av-breathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.02); } }
 

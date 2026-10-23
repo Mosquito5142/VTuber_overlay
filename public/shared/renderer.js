@@ -2,6 +2,11 @@ import { BUILTIN_ACTIONS } from './constants.js';
 import { resolveFrame, wantedFrame } from './frames.js';
 
 const BLINK_MS = 120;
+const FADE_MS = 90; // นานกว่า transition ใน CSS (70ms) เล็กน้อย ให้รูปใหม่ทึบเต็มก่อนเอารูปเก่าออก
+const SPRING = 320; // ความแข็งสปริงตอนเด้ง
+const DAMPING = 20;
+const LOUD_LEVEL = 0.5; // ระดับเสียงที่ถือว่าดังสุด (เด้งเต็ม talkBounce)
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 export function createRenderer(container) {
   const root = document.createElement('div');
@@ -22,6 +27,13 @@ export function createRenderer(container) {
   let visible = null;
   let blinkTimer = null;
   let generation = 0;
+  let level = 0;
+  let smoothLevel = 0;
+  let y = 0;
+  let vy = 0;
+  let lastFrame = 0;
+  let rafId = 0;
+  let tickTimer = null;
 
   function rebuildImages() {
     generation += 1;
@@ -61,10 +73,49 @@ export function createRenderer(container) {
     const rel = resolveFrame(usable, expression, wantedFrame({ talking, blinking }));
     const img = (rel && images.get(rel)) ?? null;
     if (img === visible) return;
-    visible?.classList.remove('av-visible');
-    img?.classList.add('av-visible');
+    if (visible) {
+      const leaving = visible;
+      leaving.classList.replace('av-visible', 'av-leaving');
+      clearTimeout(leaving.leaveTimer);
+      leaving.leaveTimer = setTimeout(() => leaving.classList.remove('av-leaving'), FADE_MS);
+    }
+    if (img) {
+      clearTimeout(img.leaveTimer);
+      img.classList.remove('av-leaving');
+      img.classList.add('av-visible');
+    }
     visible = img;
   }
+
+  // สปริงตามความดังเสียง + ยืดหดตามความเร็ว + ส่ายตัวเบาๆ ตอนหายใจ คำนวณทุกเฟรม
+  // ปกติใช้ requestAnimationFrame (ลื่นสุด) แต่สำรองด้วย timer ไว้ เผื่อหน้าที่ไม่ได้วาดจอ (rAF หยุด) ตัวจะได้ไม่ค้างกลางเด้ง
+  function scheduleTick() {
+    rafId = requestAnimationFrame(() => tick(performance.now()));
+    tickTimer = setTimeout(() => tick(performance.now()), 50);
+  }
+
+  function tick(now) {
+    cancelAnimationFrame(rafId);
+    clearTimeout(tickTimer);
+    scheduleTick();
+    const dt = Math.min(0.05, (now - (lastFrame || now)) / 1000);
+    lastFrame = now;
+    const motion = model?.config?.motion;
+    const height = root.clientHeight || 1000;
+    const unit = height / 1000; // talkBounce กำหนดเป็น px บนผืน 1000px
+    smoothLevel += (level - smoothLevel) * Math.min(1, dt * 18);
+    const loudness = clamp(smoothLevel / LOUD_LEVEL, 0, 1);
+    const target = talking ? -(motion?.talkBounce ?? 0) * unit * (0.35 + 0.65 * loudness) : 0;
+    vy += (SPRING * (target - y) - DAMPING * vy) * dt;
+    y += vy * dt;
+    const stretch = clamp((-vy / unit) * 0.0004, -0.04, 0.04);
+    const t = now / 1000;
+    const idle = motion?.breathe ? 1 : 0;
+    const angle = idle * Math.sin((t * Math.PI * 2) / 6) * 0.6;
+    const drift = idle * Math.sin((t * Math.PI * 2) / 9) * 0.004 * root.clientWidth;
+    bounce.style.transform = `translate(${drift.toFixed(2)}px, ${y.toFixed(2)}px) rotate(${angle.toFixed(3)}deg) scale(${(1 - stretch).toFixed(4)}, ${(1 + stretch).toFixed(4)})`;
+  }
+  scheduleTick();
 
   function scheduleBlink() {
     clearTimeout(blinkTimer);
@@ -86,7 +137,6 @@ export function createRenderer(container) {
   function applyMotion() {
     const motion = model?.config?.motion;
     root.classList.toggle('av-breathe', Boolean(motion?.breathe));
-    bounce.style.setProperty('--av-talk-bounce', `${motion?.talkBounce ?? 0}px`);
   }
 
   action.addEventListener('animationend', () => {
@@ -106,8 +156,11 @@ export function createRenderer(container) {
     setState(next) {
       talking = Boolean(next.talking);
       expression = next.expression ?? 'default';
-      bounce.classList.toggle('av-talking', talking);
+      if (!talking) level = 0;
       update();
+    },
+    setLevel(value) {
+      level = Number.isFinite(value) ? clamp(value, 0, 1) : 0;
     },
     play(name) {
       if (!BUILTIN_ACTIONS.includes(name)) return;
@@ -117,6 +170,8 @@ export function createRenderer(container) {
     },
     destroy() {
       clearTimeout(blinkTimer);
+      cancelAnimationFrame(rafId);
+      clearTimeout(tickTimer);
       root.remove();
     },
   };

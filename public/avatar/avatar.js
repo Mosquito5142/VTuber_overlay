@@ -11,10 +11,12 @@ connectSocket({
     else if (message.type === 'state') {
       last = message;
       renderer.setState(message);
-    } else if (message.type === 'play') renderer.play(message.action);
+    } else if (message.type === 'level') renderer.setLevel(message.level);
+    else if (message.type === 'play') renderer.play(message.action);
   },
   onClose() {
     // server หลุด: ค้างภาพล่าสุดไว้แต่หุบปาก ไม่ให้ปากค้างอ้าบนสตรีม
+    renderer.setLevel(0);
     renderer.setState({ ...last, talking: false });
   },
 });

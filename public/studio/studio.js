@@ -98,6 +98,7 @@ async function selectAvatar(name) {
 function onLevel(level) {
   const talking = gate.update(level, performance.now());
   socket.send({ type: 'voice', level, talking });
+  preview.setLevel(level);
   $('meter-fill').style.width = `${level * 100}%`;
 }
 
