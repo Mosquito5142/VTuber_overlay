@@ -173,7 +173,7 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
   }
 
   function frameSlot(expression, frame) {
-    const has = model.files[expression]?.includes(frame);
+    const has = Object.hasOwn(model.files, expression) && model.files[expression].includes(frame);
     const required = expression === 'default' && frame === 'idle';
     return h('label', {
       class: has ? 'slot checker filled' : 'slot',
@@ -229,7 +229,7 @@ export function createEditor(container, { api, send, onSelectAvatar }) {
     });
     const add = () => {
       const name = newExpressionName.trim().toLowerCase();
-      if (name === 'default' || !isValidName(name) || draft.expressions[name]) {
+      if (name === 'default' || !isValidName(name) || Object.hasOwn(draft.expressions, name)) {
         errors = [`ชื่อสีหน้า${NAME_HINT} ห้ามซ้ำ และห้ามใช้ default`];
         render();
         return;
