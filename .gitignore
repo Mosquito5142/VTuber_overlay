@@ -1,5 +1,6 @@
 node_modules/
 .superpowers/
-avatars/
+avatars/*
+!avatars/chara/
 settings.json
 img/

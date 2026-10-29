@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "name": "chara",
+  "expressions": {
+    "smug": {
+      "key": "Z",
+      "mode": "toggle"
+    },
+    "laugh": {
+      "key": "X",
+      "mode": "timed",
+      "seconds": 4
+    },
+    "angry": {
+      "key": "C",
+      "mode": "timed",
+      "seconds": 4
+    },
+    "shocked": {
+      "key": "V",
+      "mode": "timed",
+      "seconds": 4
+    }
+  },
+  "actions": {
+    "jump": {
+      "key": "F5"
+    },
+    "shake": {
+      "key": "F6"
+    }
+  },
+  "motion": {
+    "breathe": true,
+    "talkBounce": 3,
+    "blinkEvery": [
+      2,
+      6
+    ]
+  }
+}
